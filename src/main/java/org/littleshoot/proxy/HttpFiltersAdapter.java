@@ -7,6 +7,8 @@ import io.netty.handler.codec.http.HttpResponse;
 
 import java.net.InetSocketAddress;
 
+import org.littleshoot.proxy.impl.cache.Record;
+
 /**
  * Convenience base class for implementations of {@link HttpFilters}.
  */
@@ -90,4 +92,14 @@ public class HttpFiltersAdapter implements HttpFilters {
     @Override
     public void proxyToServerConnectionSucceeded() {
     }
+
+	@Override
+	public void proxyToClientResponses(Record record) {
+		
+	}
+
+	@Override
+	public InetSocketAddress setLocalAddress() {
+		return null;
+	}
 }

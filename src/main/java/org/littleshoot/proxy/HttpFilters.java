@@ -1,7 +1,9 @@
 package org.littleshoot.proxy;
 
 import io.netty.handler.codec.http.*;
+
 import org.littleshoot.proxy.impl.ProxyUtils;
+import org.littleshoot.proxy.impl.cache.Record;
 
 import java.net.InetSocketAddress;
 
@@ -177,5 +179,9 @@ public interface HttpFilters {
      * Informs filter that proxy to server connection has succeeded.
      */
     void proxyToServerConnectionSucceeded();
+
+	void proxyToClientResponses(Record record);
+
+	InetSocketAddress setLocalAddress();
 
 }
