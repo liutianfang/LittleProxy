@@ -295,7 +295,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 			return;
 		}
 
-		// cache all response in one ctx
+		// cache all response and content in one ctx
 
 		if (ResponseCache.getCache().containsKey(ctx.hashCode())) {
 			Record record = ResponseCache.getCache().get(ctx.hashCode());
@@ -303,6 +303,17 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 				if (needProcess(record, httpObject)) {
 					synchronized (record) {
 						record.insert(httpObject);
+					}
+
+					if (httpObject instanceof HttpResponse) {
+
+						if (HttpHeaders.isTransferEncodingChunked(((HttpResponse) httpObject))) {
+							record.setChunked(true);
+							if (record.isDelayFlag()) {
+								write(httpObject);
+								LOG.debug(" responce process: lessDelay, send chunked response    ");
+							}
+						}
 					}
 					return;
 
@@ -316,50 +327,88 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 				}
 
 				if (record.isLast(httpObject)) {
-
 					// begin to return response to client, process content
 					filters.proxyToClientResponses(record);
 
-					// sending response
+					if (record.isDelayFlag()) {
 
-					long[] nanos = record.getSortedNanoTimes();
-					LOG.debug("cache 0    " + record.getCacheMap().get(nanos[0]).getHttpObject());
-					if (record.getCacheMap().get(nanos[0]).getHttpObject() instanceof HttpResponse) {
-						HttpResponse httpResponse = (HttpResponse) record.getCacheMap().get(nanos[0]).getHttpObject();
-						fixHttpVersionHeaderIfNecessary(httpResponse);
-						modifyResponseHeadersToReflectProxying(httpResponse);
+						if (record.lastChunk == null) {
+							long[] keys = record.getSortedContentKeys();
+							for (int i = 1; i <= (keys.length - record.getDelay()); i++) {
 
-						write(record.getCacheMap().get(nanos[0]).getHttpObject());
-						LOG.debug("send cached response   ");
-					}
-					if (record.fullHttpContent != null) {
-						LOG.debug("send cached content   ");
-						write(record.fullHttpContent);
+								if (!record.getSendout().contains(keys[i])) {
+
+									record.getSendout().add(keys[i]);
+									write(record.getCacheMap().get(keys[i]));
+								}
+
+							}
+							LOG.debug("lessDelay: last chunk process send ");
+						} else {
+							write(record.lastChunk);
+							LOG.debug("lessDelay: modified last chunk process send ");
+						}
 						writeEmptyBuffer();
-						//this.channel.flush();
-						closeConnectionsAfterWriteIfNecessary(serverConnection, currentHttpRequest, currentHttpResponse, record.fullHttpContent);
+						forceDisconnect(serverConnection);
+						closeConnectionsAfterWriteIfNecessary(serverConnection, currentHttpRequest, currentHttpResponse, httpObject);
 
 					} else {
 
-						// LOG.debug("content   nano= " + nanos[0] +
-						// " with channel as " + this.channel);
+						// sending cacheed response
 
-						// LOG.debug(record.getCacheMap().get(nanos[0]).getHttpObject().toString());
+						long[] nanos = record.getSortedNanoTimes();
+						LOG.debug("cache 0    " + record.getCacheMap().get(nanos[0]).getHttpObject());
+						if (record.getCacheMap().get(nanos[0]).getHttpObject() instanceof HttpResponse) {
+							HttpResponse httpResponse = (HttpResponse) record.getCacheMap().get(nanos[0]).getHttpObject();
+							fixHttpVersionHeaderIfNecessary(httpResponse);
+							modifyResponseHeadersToReflectProxying(httpResponse);
 
-						for (int i = 1; i < nanos.length; i++) {
-
-							write(((HttpContent) record.getCacheMap().get(nanos[i]).getHttpObject()).content().retain());
-
+							write(record.getCacheMap().get(nanos[0]).getHttpObject());
+							LOG.debug("send cached response   ");
 						}
-						if (ProxyUtils.isLastChunk(record.getCacheMap().get(nanos[nanos.length - 1]).getHttpObject())) {
+						// send content
+						if (record.fullHttpContent != null) {
+							LOG.debug("send cached content   ");
+							write(record.fullHttpContent);
 							writeEmptyBuffer();
+							closeConnectionsAfterWriteIfNecessary(serverConnection, currentHttpRequest, currentHttpResponse, record.fullHttpContent);
+
+						} else {
+
+							// LOG.debug("content   nano= " + nanos[0]
+							// +" with channel as " + this.channel);
+
+							// LOG.debug(record.getCacheMap().get(nanos[0]).getHttpObject().toString());
+
+							for (int i = 1; i < nanos.length; i++) {
+
+								write(((HttpContent) record.getCacheMap().get(nanos[i]).getHttpObject()).content().retain());
+
+							}
+							if (ProxyUtils.isLastChunk(record.getCacheMap().get(nanos[nanos.length - 1]).getHttpObject())) {
+								writeEmptyBuffer();
+							}
+							closeConnectionsAfterWriteIfNecessary(serverConnection, currentHttpRequest, currentHttpResponse, httpObject);
 						}
-						closeConnectionsAfterWriteIfNecessary(serverConnection, currentHttpRequest, currentHttpResponse, httpObject);
 					}
-					
 
 					ResponseCache.getCache().remove(ctx.hashCode());
 					LOG.debug("send  cached contents finished， and remove cache");
+
+				} else {
+					// send chunk content
+					long[] keys = record.getSortedContentKeys();
+					for (int i = 0; i <= (keys.length - record.getDelay()); i++) {
+
+						if (!record.getSendout().contains(keys[i])) {
+							((HttpContent)record.getCacheMap().get(keys[i]).getHttpObject()).content().resetReaderIndex();
+							LOG.debug( "http chunk content length "+((HttpContent)record.getCacheMap().get(keys[i]).getHttpObject()).content().capacity());
+							write(record.getCacheMap().get(keys[i]).getHttpObject());
+							record.getSendout().add(keys[i]);
+						}
+
+					}
+					LOG.debug("lessDelay: send  cached  chunk  contents");
 
 				}
 
@@ -899,17 +948,16 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 			ByteBuf content = ((DefaultFullHttpRequest) original).content();
 			// add by liujt
 
-			if (original.getUri().length() < 7 || !original.getUri().substring(0, 6).equalsIgnoreCase("http://")) {
+			if (original.getUri().length() < 7 || !original.getUri().substring(0, 7).equalsIgnoreCase("http://")) {
 				LOG.debug(" modify originalRequest url  " + original.getUri());
-				
-				
+
 				if (original.headers().contains("Host")) {
-						StringBuffer url = new StringBuffer("http://").append(original.headers().get("Host")).append(original.getUri());
-						
-						LOG.debug("!!!!!new url=  "+ url);
-						return new DefaultFullHttpRequest(original.getProtocolVersion(), original.getMethod(), url.toString(), content);
-				}else{
-					
+					StringBuffer url = new StringBuffer("http://").append(original.headers().get("Host")).append(original.getUri());
+
+					LOG.debug("!!!!!new url=  " + url);
+					return new DefaultFullHttpRequest(original.getProtocolVersion(), original.getMethod(), url.toString(), content);
+				} else {
+
 					StringBuffer url = new StringBuffer("http://").append(HttpHeaders.getHost(original)).append(original.getUri());
 					return new DefaultFullHttpRequest(original.getProtocolVersion(), original.getMethod(), url.toString(), content);
 				}
@@ -917,21 +965,21 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 
 			return new DefaultFullHttpRequest(original.getProtocolVersion(), original.getMethod(), original.getUri(), content);
 		} else {
-			
-			if (original.getUri().length() < 7 || !original.getUri().substring(0, 6).equalsIgnoreCase("http://")) {
+
+			if (original.getUri().length() < 7 || !original.getUri().substring(0, 7).equalsIgnoreCase("http://")) {
 				LOG.debug(" modify originalRequest url  " + original.getUri());
-				
-				LOG.debug("original.headers().get(\"Host\")   " +original.headers().get("Host")+"   HttpHeaders.getHost(original)"+HttpHeaders.getHost(original));
+
+				LOG.debug("original.headers().get(\"Host\")   " + original.headers().get("Host") + "   HttpHeaders.getHost(original)"
+						+ HttpHeaders.getHost(original));
 				if (original.headers().contains("Host")) {
-						StringBuffer url = new StringBuffer("http://").append(original.headers().get("Host")).append(original.getUri());
-						return new DefaultHttpRequest(original.getProtocolVersion(), original.getMethod(), url.toString());
+					StringBuffer url = new StringBuffer("http://").append(original.headers().get("Host")).append(original.getUri());
+					return new DefaultHttpRequest(original.getProtocolVersion(), original.getMethod(), url.toString());
 				}
-			}else{
-				
-				StringBuffer url = new StringBuffer("http://").append(HttpHeaders.getHost(original)).append(original.getUri());
-				return new DefaultHttpRequest(original.getProtocolVersion(), original.getMethod(), url.toString());
+			} else {
+
+				return new DefaultHttpRequest(original.getProtocolVersion(), original.getMethod(), original.getUri());
 			}
-			
+
 			return new DefaultHttpRequest(original.getProtocolVersion(), original.getMethod(), original.getUri());
 		}
 	}

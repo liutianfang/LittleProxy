@@ -1,14 +1,17 @@
 package org.littleshoot.proxy.impl.cache;
 
 import io.netty.handler.codec.http.DefaultHttpContent;
+import io.netty.handler.codec.http.DefaultHttpRequest;
 import io.netty.handler.codec.http.DefaultHttpResponse;
+import io.netty.handler.codec.http.DefaultLastHttpContent;
 import io.netty.handler.codec.http.HttpContent;
+import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpObject;
 import io.netty.handler.codec.http.LastHttpContent;
 
 import java.nio.charset.Charset;
 import java.util.Arrays;
-import java.util.Iterator;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -37,7 +40,24 @@ public class Record {
 
 	int ruleID = -1;
 
+	/**
+	 * 
+	 */
 	ConcurrentHashMap<Long, CacheObject> cacheMap = null;
+
+	/**
+	 * 
+	 */
+	boolean delayFlag = false;
+
+	private HashSet<Long> sendout = new HashSet<Long>();
+
+	/**
+	 * 
+	 */
+	int delay = 1;
+
+	boolean chunked = false;
 
 	public void createResponseMap() {
 		if (cacheMap == null) {
@@ -51,6 +71,12 @@ public class Record {
 	public byte[] allContent = null;
 
 	public DefaultHttpContent fullHttpContent = null;
+	
+	public DefaultLastHttpContent lastChunk = null;
+	
+	public HttpHeaders  httpRequestHeaders=null;
+	
+	
 
 	/**
 	 * insert
@@ -98,21 +124,24 @@ public class Record {
 			}
 
 		}
-//		else if (httpObject instanceof DefaultLastHttpContent) {
-//
-//			LOG.debug("add content to responsePreBody,  createNano " + createNano);
-//			this.responsePreBody.append(((DefaultLastHttpContent) httpObject).content().retain().toString(Charset.forName("UTF-8")));
-//
-//			byte[] tmp = new byte[((DefaultLastHttpContent) httpObject).content().retain().resetReaderIndex().readableBytes()];
-//			((DefaultLastHttpContent) httpObject).content().readBytes(tmp);
-//
-//			byte[] copy = new byte[allContent.length];
-//			System.arraycopy(allContent, 0, copy, 0, allContent.length);
-//			allContent = new byte[tmp.length + copy.length];
-//			System.arraycopy(copy, 0, allContent, 0, copy.length);
-//			System.arraycopy(tmp, 0, allContent, copy.length, tmp.length);
-//
-//		}
+		// else if (httpObject instanceof DefaultLastHttpContent) {
+		//
+		// LOG.debug("add content to responsePreBody,  createNano " +
+		// createNano);
+		// this.responsePreBody.append(((DefaultLastHttpContent)
+		// httpObject).content().retain().toString(Charset.forName("UTF-8")));
+		//
+		// byte[] tmp = new byte[((DefaultLastHttpContent)
+		// httpObject).content().retain().resetReaderIndex().readableBytes()];
+		// ((DefaultLastHttpContent) httpObject).content().readBytes(tmp);
+		//
+		// byte[] copy = new byte[allContent.length];
+		// System.arraycopy(allContent, 0, copy, 0, allContent.length);
+		// allContent = new byte[tmp.length + copy.length];
+		// System.arraycopy(copy, 0, allContent, 0, copy.length);
+		// System.arraycopy(tmp, 0, allContent, copy.length, tmp.length);
+		//
+		// }
 
 		if (cacheMap == null) {
 			cacheMap = new ConcurrentHashMap<Long, CacheObject>();
@@ -191,8 +220,8 @@ public class Record {
 			long[] ret = new long[cacheMap.size()];
 			int i = 0;
 
-			 for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {   
-//			for (long key : cacheMap.keySet()) {
+			for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {
+				// for (long key : cacheMap.keySet()) {
 
 				ret[i] = entry.getKey();
 				i++;
@@ -203,14 +232,12 @@ public class Record {
 
 		}
 	}
-	
-	
+
 	/*
-	 * for (Map.Entry<String, String> entry : map.entrySet()) {   
-            System.out.println("key= " + entry.getKey() + "  and  value= "  
-                    + entry.getValue());   
-        }   
-	 * (non-Javadoc)
+	 * for (Map.Entry<String, String> entry : map.entrySet()) {
+	 * System.out.println("key= " + entry.getKey() + "  and  value= " +
+	 * entry.getValue()); } (non-Javadoc)
+	 * 
 	 * @see java.lang.Object#toString()
 	 */
 
@@ -218,9 +245,9 @@ public class Record {
 	public String toString() {
 		StringBuffer sb = new StringBuffer().append("cache recrode:\tctxHash is ").append(ctxHash).append("\r\n\t\tcreateNano  ").append(createNano)
 				.append("\r\n\t\t requestURL  ").append(requestURL).append("\r\n\t\t cache size  ").append(cacheMap.size());
-		 for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {   
-			sb.append("\r\n\t objname  ").append(cacheMap.get(entry.getKey()).objName).append("   time is ").append(cacheMap.get(entry.getKey()).nano).append("\r\n\t isresponse  ")
-					.append(cacheMap.get(entry.getKey()).isResponse);
+		for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {
+			sb.append("\r\n\t objname  ").append(cacheMap.get(entry.getKey()).objName).append("   time is ").append(cacheMap.get(entry.getKey()).nano)
+					.append("\r\n\t isresponse  ").append(cacheMap.get(entry.getKey()).isResponse);
 		}
 
 		return sb.append("\r\n").toString();
@@ -233,7 +260,7 @@ public class Record {
 	 */
 	public long getResponseKey() {
 
-		 for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {   
+		for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {
 			if (entry.getValue().isResponse()) {
 				return entry.getKey();
 			}
@@ -251,7 +278,7 @@ public class Record {
 		long[] ret = new long[cacheMap.size() - 1];
 		int i = 0;
 
-		 for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {   
+		for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {
 			if (entry.getValue().isResponse()) {
 				continue;
 			}
@@ -264,6 +291,51 @@ public class Record {
 
 	}
 
+	public byte[] getUnsendChunkedContent() {
+
+		long[] keys = getSortedContentKeys();
+		
+		byte[] ret={};
+
+		for (int i = 0; i < keys.length; i++) {
+
+			if (!this.sendout.contains(keys[i])) {
+
+				if (this.cacheMap.get(keys[i]).getHttpObject() instanceof HttpContent) {
+					
+					byte[] tmp = new byte[((HttpContent) this.cacheMap.get(keys[i]).getHttpObject()).content().retain().resetReaderIndex().readableBytes()];
+					((HttpContent) this.cacheMap.get(keys[i]).getHttpObject()).content().readBytes(tmp);
+					LOG.debug("Httpchunk   content length " +tmp.length);
+					
+					if (ret == null) {
+						ret = new byte[tmp.length];
+						System.arraycopy(tmp, 0, ret, 0, tmp.length);
+
+					} else {
+						byte[] copy = new byte[ret.length];
+						System.arraycopy(ret, 0, copy, 0, ret.length);
+						ret = new byte[tmp.length + copy.length];
+						System.arraycopy(copy, 0, ret, 0, copy.length);
+						System.arraycopy(tmp, 0, ret, copy.length, tmp.length);
+
+					}
+					
+				}
+
+			}
+		}
+		
+		return ret;
+
+	}
+	
+	/*
+	 * byte[] tmp = new byte[((HttpContent) httpObject).content().retain().resetReaderIndex().readableBytes()];
+			((HttpContent) httpObject).content().readBytes(tmp);
+
+			
+	 */
+
 	public void setRuleID(int ruleID) {
 		this.ruleID = ruleID;
 	}
@@ -271,5 +343,49 @@ public class Record {
 	public int getRuleID() {
 		return ruleID;
 	}
+
+	public boolean isDelayFlag() {
+		return delayFlag;
+	}
+
+	public void setDelayFlag(boolean delayFlag) {
+		this.delayFlag = delayFlag;
+	}
+
+	public int getDelay() {
+		return delay;
+	}
+
+	public void setDelay(int delay) {
+		this.delay = delay;
+	}
+
+
+
+	public HashSet<Long> getSendout() {
+		return sendout;
+	}
+
+	public void setSendout(HashSet<Long> sendout) {
+		this.sendout = sendout;
+	}
+
+	public boolean isChunked() {
+		return chunked;
+	}
+
+	public void setChunked(boolean chunked) {
+		this.chunked = chunked;
+	}
+
+	public HttpHeaders getHttpRequestHeaders() {
+		return httpRequestHeaders;
+	}
+
+	public void setHttpRequestHeaders(HttpHeaders httpRequestHeaders) {
+		this.httpRequestHeaders = httpRequestHeaders;
+	}
+
+
 
 }

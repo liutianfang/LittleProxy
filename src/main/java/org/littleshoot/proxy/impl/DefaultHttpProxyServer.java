@@ -378,9 +378,9 @@ public class DefaultHttpProxyServer implements HttpProxyServer {
      * Represents a group of servers that share thread pools.
      */
     private static class ServerGroup {
-        private static final int INCOMING_ACCEPTOR_THREADS = 2;
-        private static final int INCOMING_WORKER_THREADS = 8;
-        private static final int OUTGOING_WORKER_THREADS = 8;
+        private static final int INCOMING_ACCEPTOR_THREADS = 4;
+        private static final int INCOMING_WORKER_THREADS = 16;
+        private static final int OUTGOING_WORKER_THREADS = 16;
 
         /**
          * A name for this ServerGroup to use in naming threads.
