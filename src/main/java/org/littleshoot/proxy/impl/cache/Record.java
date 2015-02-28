@@ -1,11 +1,9 @@
 package org.littleshoot.proxy.impl.cache;
 
 import io.netty.handler.codec.http.DefaultHttpContent;
-import io.netty.handler.codec.http.DefaultHttpRequest;
 import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.DefaultLastHttpContent;
 import io.netty.handler.codec.http.HttpContent;
-import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpObject;
 import io.netty.handler.codec.http.LastHttpContent;
 
@@ -48,22 +46,16 @@ public class Record {
 	/**
 	 * 
 	 */
-	boolean delayFlag = false;
+	private boolean delayFlag = false;
 
 	private HashSet<Long> sendout = new HashSet<Long>();
 
 	/**
 	 * 
 	 */
-	int delay = 1;
+	private int delay = 1;
 
-	boolean chunked = false;
-
-	public void createResponseMap() {
-		if (cacheMap == null) {
-			cacheMap = new ConcurrentHashMap<Long, CacheObject>();
-		}
-	}
+	private boolean chunked = false;
 
 	public StringBuilder responsePreBody = new StringBuilder();
 	public StringBuilder responsePostBody = new StringBuilder();
@@ -72,9 +64,15 @@ public class Record {
 
 	public DefaultHttpContent fullHttpContent = null;
 	
+	
+	public HttpContent fullContent = null;
 	public DefaultLastHttpContent lastChunk = null;
 	
-	public HttpHeaders  httpRequestHeaders=null;
+	private String  requestHeaders="";
+	
+	private Charset  charset=Charset.forName("UTF-8");
+	
+	
 	
 	
 
@@ -105,7 +103,7 @@ public class Record {
 		if (httpObject instanceof HttpContent) {
 
 			LOG.debug("add content to responsePreBody,  createNano " + createNano);
-			this.responsePreBody.append(((HttpContent) httpObject).content().retain().toString(Charset.forName("UTF-8")));
+			this.responsePreBody.append(((HttpContent) httpObject).content().retain().toString(charset));
 
 			byte[] tmp = new byte[((HttpContent) httpObject).content().retain().resetReaderIndex().readableBytes()];
 			((HttpContent) httpObject).content().readBytes(tmp);
@@ -124,24 +122,7 @@ public class Record {
 			}
 
 		}
-		// else if (httpObject instanceof DefaultLastHttpContent) {
-		//
-		// LOG.debug("add content to responsePreBody,  createNano " +
-		// createNano);
-		// this.responsePreBody.append(((DefaultLastHttpContent)
-		// httpObject).content().retain().toString(Charset.forName("UTF-8")));
-		//
-		// byte[] tmp = new byte[((DefaultLastHttpContent)
-		// httpObject).content().retain().resetReaderIndex().readableBytes()];
-		// ((DefaultLastHttpContent) httpObject).content().readBytes(tmp);
-		//
-		// byte[] copy = new byte[allContent.length];
-		// System.arraycopy(allContent, 0, copy, 0, allContent.length);
-		// allContent = new byte[tmp.length + copy.length];
-		// System.arraycopy(copy, 0, allContent, 0, copy.length);
-		// System.arraycopy(tmp, 0, allContent, copy.length, tmp.length);
-		//
-		// }
+	
 
 		if (cacheMap == null) {
 			cacheMap = new ConcurrentHashMap<Long, CacheObject>();
@@ -244,7 +225,7 @@ public class Record {
 	@Override
 	public String toString() {
 		StringBuffer sb = new StringBuffer().append("cache recrode:\tctxHash is ").append(ctxHash).append("\r\n\t\tcreateNano  ").append(createNano)
-				.append("\r\n\t\t requestURL  ").append(requestURL).append("\r\n\t\t cache size  ").append(cacheMap.size());
+				.append("\r\n\t\t requestURL  ").append(requestURL).append("\r\n\t\t cache size  ").append(cacheMap.size()).append("\r\n\t\t request Headers:  ").append(requestHeaders);
 		for (Map.Entry<Long, CacheObject> entry : cacheMap.entrySet()) {
 			sb.append("\r\n\t objname  ").append(cacheMap.get(entry.getKey()).objName).append("   time is ").append(cacheMap.get(entry.getKey()).nano)
 					.append("\r\n\t isresponse  ").append(cacheMap.get(entry.getKey()).isResponse);
@@ -378,13 +359,33 @@ public class Record {
 		this.chunked = chunked;
 	}
 
-	public HttpHeaders getHttpRequestHeaders() {
-		return httpRequestHeaders;
+	public String getRequestHeaders() {
+		return requestHeaders;
 	}
 
-	public void setHttpRequestHeaders(HttpHeaders httpRequestHeaders) {
-		this.httpRequestHeaders = httpRequestHeaders;
+	public void setRequestHeaders(String requestHeaders) {
+		this.requestHeaders = requestHeaders;
 	}
+
+	public void clear() {
+		
+		this.allContent=null;
+		this.cacheMap=null;
+		this.fullHttpContent=null;
+		this.lastChunk=null;
+		this.sendout=null;
+		
+	}
+
+	public Charset getCharset() {
+		return charset;
+	}
+
+	public void setCharset(Charset charset) {
+		this.charset = charset;
+	}
+
+
 
 
 
