@@ -398,19 +398,23 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 					LOG.debug("send  cached contents finished， and remove cache");
 
 				} else {
-					// send chunk content
-					long[] keys = record.getSortedContentKeys();
-					for (int i = 0; i <= (keys.length - record.getDelay()); i++) {
 
-						if (!record.getSendout().contains(keys[i])) {
-							((HttpContent) record.getCacheMap().get(keys[i]).getHttpObject()).content().resetReaderIndex();
-							LOG.debug("http chunk content length " + ((HttpContent) record.getCacheMap().get(keys[i]).getHttpObject()).content().capacity());
-							write(record.getCacheMap().get(keys[i]).getHttpObject());
-							record.getSendout().add(keys[i]);
+					if (record.isDelayFlag()) {
+
+						// send chunk content
+						long[] keys = record.getSortedContentKeys();
+						for (int i = 0; i <= (keys.length - record.getDelay()); i++) {
+
+							if (!record.getSendout().contains(keys[i])) {
+								((HttpContent) record.getCacheMap().get(keys[i]).getHttpObject()).content().resetReaderIndex();
+								LOG.debug("http chunk content length " + ((HttpContent) record.getCacheMap().get(keys[i]).getHttpObject()).content().capacity());
+								write(record.getCacheMap().get(keys[i]).getHttpObject());
+								record.getSendout().add(keys[i]);
+							}
+
 						}
-
+						LOG.debug("lessDelay: send  cached  chunk  contents");
 					}
-					LOG.debug("lessDelay: send  cached  chunk  contents");
 
 				}
 
@@ -948,7 +952,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 	private HttpRequest copy(HttpRequest original) {
 		if (original instanceof DefaultFullHttpRequest) {
 
-			LOG.debug(" duplicate originalRequest headers size: "+((DefaultFullHttpRequest) original).headers().entries().size());
+			LOG.debug(" duplicate originalRequest headers size: " + ((DefaultFullHttpRequest) original).headers().entries().size());
 			StringBuffer url = new StringBuffer("http://");
 			if (original.getUri().length() < 7 || !original.getUri().substring(0, 7).equalsIgnoreCase("http://")) {
 				LOG.debug(" modify originalRequest url  " + original.getUri());
